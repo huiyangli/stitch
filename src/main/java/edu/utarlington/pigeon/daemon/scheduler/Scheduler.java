@@ -112,7 +112,6 @@ public class Scheduler {
     public void initialize(Configuration conf, InetSocketAddress socket) throws IOException {
         address = Network.socketAddressToThrift(socket);
         String mode = conf.getString(PigeonConf.DEPLYOMENT_MODE, "unspecified");
-        cutoff = conf.getDouble(PigeonConf.TR_CUTOFF, PigeonConf.TR_CUTOFF_DEFAULT);
         this.conf = conf;
         //TODO: Mode support
         if (mode.equals("standalone")) {
