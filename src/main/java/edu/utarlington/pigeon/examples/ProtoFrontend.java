@@ -57,7 +57,6 @@ public class ProtoFrontend implements FrontendService.Iface {
 
     /**
      * Host and port where scheduler is running.。/
-     *
      */
     public static final String SCHEDULER_HOST = "scheduler_host";
     public static final String DEFAULT_SCHEDULER_HOST = "localhost";
@@ -79,20 +78,16 @@ public class ProtoFrontend implements FrontendService.Iface {
     private long completedRequestsCount;
 
     private class JobLaunchRunnable implements Runnable {
-//        private int requestId;
         private double arrivalInterval;
-        private double averageTasksD;
         private List<Double> tasksDList;
 
-        public JobLaunchRunnable(double arrivalInterval, double avgTasksD, List<Double> tasks) {
-//            this.requestId = requestId;
+        public JobLaunchRunnable(double arrivalInterval, List<Double> tasks) {
             this.arrivalInterval = arrivalInterval;
-            this.averageTasksD = avgTasksD;
             tasksDList = new ArrayList<Double>(tasks);
         }
 
         @Override
-        public void run(){
+        public void run() {
             // Generate tasks in the format expected by Sparrow. First, pack task parameters.
 
             List<TTaskSpec> tasks = new ArrayList<TTaskSpec>();
@@ -108,7 +103,7 @@ public class ProtoFrontend implements FrontendService.Iface {
             }
             long start = System.currentTimeMillis();
             try {
-                client.submitJob(APPLICATION_ID, averageTasksD, tasks, USER);
+                client.submitJob(APPLICATION_ID, tasks, USER);
             } catch (TException e) {
                 LOG.error("Scheduling request failed!", e);
             }
@@ -137,16 +132,16 @@ public class ProtoFrontend implements FrontendService.Iface {
     }
 
     /*Output txt file*/
-    public void CreateNewTxt(String requestInfo){
+    public void CreateNewTxt(String requestInfo) {
         BufferedWriter output = null;
         try {
             File file = new File("requestInfo.txt");
             output = new BufferedWriter(new OutputStreamWriter(
                     new FileOutputStream(file, true), "utf-8"));
-            output.write(requestInfo+"\r\n");
+            output.write(requestInfo + "\r\n");
             output.flush();
             output.close();
-        } catch ( IOException e ) {
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
@@ -175,8 +170,7 @@ public class ProtoFrontend implements FrontendService.Iface {
             }
 
             String trPath = conf.getString(TR_PATH);
-//            Double traceCutOff = conf.getDouble(TR_CUTOFF, TR_CUTOFF_DEFAULT);
-//            traceCutOffMilliSec = traceCutOff.longValue();
+
             int counter = 0;
             int schedulerId = conf.getInt(SCHEDULER_ID);
             int schedulerSize = conf.getInt(SCHEDULER_SIZE);
@@ -199,38 +193,28 @@ public class ProtoFrontend implements FrontendService.Iface {
             int requestId = 0;
             Double arrivalInterval = 0.0;
             double exprTime = 0.0;
-            Double averageDuriationMilliSec;
             long arrivalIntervalinMilliSec = 0;
             List tasks = new ArrayList();
 
             ScheduledThreadPoolExecutor taskLauncher = new ScheduledThreadPoolExecutor(1);
 
-            while((str = bufferedReader.readLine()) != null)
-            {
-                if(counter % schedulerSize == schedulerId) {
-                    str = str+"\r\n";
+            while ((str = bufferedReader.readLine()) != null) {
+                if (counter % schedulerSize == schedulerId) {
+                    str = str + "\r\n";
                     String[] SubmissionTime = str.split("\\s+|\t");
                     arrivalInterval = Double.parseDouble(SubmissionTime[0]);
 
                     arrivalIntervalinMilliSec = Double.valueOf(arrivalInterval * 1000).longValue();
 
-                    averageDuriationMilliSec = Double.parseDouble(SubmissionTime[2]) * 1000;
-
-                    //String[] dictionary = str.split("\\s{2}|\t");
-//                String[] dictionary = str.split("\\s");
-                    //tasks = null;
-                    for(int i = 3; i<SubmissionTime.length ;i++){
+                    for (int i = 3; i < SubmissionTime.length; i++) {
                         //change second to milliseconds
                         double taskDinMilliSec = Double.valueOf(SubmissionTime[i]) * 1000;
                         tasks.add(taskDinMilliSec);
 
                     }
 
-                    //Estimated experiment duration
-                    exprTime += averageDuriationMilliSec * tasks.size();
-
-                    ProtoFrontend.JobLaunchRunnable runnable = new JobLaunchRunnable(arrivalIntervalinMilliSec, averageDuriationMilliSec,tasks);
-                    taskLauncher.schedule(runnable,  arrivalIntervalinMilliSec, TimeUnit.MILLISECONDS);
+                    ProtoFrontend.JobLaunchRunnable runnable = new JobLaunchRunnable(arrivalIntervalinMilliSec, tasks);
+                    taskLauncher.schedule(runnable, arrivalIntervalinMilliSec, TimeUnit.MILLISECONDS);
 
                     totalNumberOfRequests++;
                     requestId++;
@@ -247,7 +231,7 @@ public class ProtoFrontend implements FrontendService.Iface {
 
             long startTime = System.currentTimeMillis();
             LOG.debug("sleeping");
-            while(totalNumberOfRequests != completedRequestsCount) {
+            while (totalNumberOfRequests != completedRequestsCount) {
                 Thread.sleep(100);
             }
             taskLauncher.shutdown();

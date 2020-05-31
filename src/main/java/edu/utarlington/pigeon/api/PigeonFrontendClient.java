@@ -56,6 +56,11 @@ public class PigeonFrontendClient {
         return submitRequest(request);
     }
 
+    public boolean submitJob(String applicationId, List<TTaskSpec> tasks, TUserGroupInfo user) throws TException {
+        TSchedulingRequest request = new TSchedulingRequest(applicationId, tasks, user);
+        return submitRequest(request);
+    }
+
     //For Spark
     public boolean submitJob(String applicationId, List<TTaskSpec> tasks, TUserGroupInfo user, String description) throws TException {
         TSchedulingRequest request = new TSchedulingRequest(applicationId, tasks, user);
