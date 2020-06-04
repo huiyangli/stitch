@@ -62,6 +62,8 @@ public class ProtoFrontend implements FrontendService.Iface {
     public static final String DEFAULT_SCHEDULER_HOST = "localhost";
     public static final String SCHEDULER_PORT = "scheduler_port";
 
+    public static final int TASK_TIME_START_COLUMN = 1;
+
     /**
      * trace file config.
      */
@@ -206,7 +208,7 @@ public class ProtoFrontend implements FrontendService.Iface {
 
                     arrivalIntervalinMilliSec = Double.valueOf(arrivalInterval * 1000).longValue();
 
-                    for (int i = 3; i < SubmissionTime.length; i++) {
+                    for (int i = TASK_TIME_START_COLUMN; i < SubmissionTime.length; i++) {
                         //change second to milliseconds
                         double taskDinMilliSec = Double.valueOf(SubmissionTime[i]) * 1000;
                         tasks.add(taskDinMilliSec);

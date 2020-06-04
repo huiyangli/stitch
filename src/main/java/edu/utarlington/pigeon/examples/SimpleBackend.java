@@ -134,8 +134,12 @@ public class SimpleBackend implements BackendService.Iface {
             } catch (InterruptedException e) {
                 LOG.error("Interrupted while sleeping: " + e.getMessage());
             }
-            LOG.debug("Task_" + taskId.taskId + " has completed in " + (System.currentTimeMillis() - startTime) + "ms");
+
+            String taskInfo = "Task_" + taskId.taskId + " has completed in " + (System.currentTimeMillis() - startTime) + "ms";
+            LOG.debug(taskInfo);
             finishedTasks.add(taskId);
+
+            Utils.writeToLocalFile("tasksInfoWorker.txt", taskInfo);
         }
     }
 

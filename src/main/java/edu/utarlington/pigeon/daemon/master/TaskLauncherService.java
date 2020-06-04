@@ -109,7 +109,7 @@ public class TaskLauncherService {
             }
             BackendService.Client backendClient = backendClients.get(task.appBackendAddress);
             THostPort schedulerHostPort = Network.socketAddressToThrift(task.schedulerAddress);
-            //The isH property is irrelevant at the backend(worker) for Pigeon, so simply pass the default value here.
+            //The isH property is irrelevant at the backend(addr) for Pigeon, so simply pass the default value here.
             TFullTaskId taskId = new TFullTaskId(task.taskSpec.getTaskId(), task.requestId,
                     task.appId, schedulerHostPort, false);
             try {

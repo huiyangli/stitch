@@ -19,7 +19,6 @@
 
 package edu.utarlington.pigeon.daemon.master;
 
-import edu.utarlington.pigeon.daemon.master.TaskScheduler;
 import edu.utarlington.pigeon.daemon.util.Network;
 import edu.utarlington.pigeon.daemon.util.ThriftClientPool;
 import edu.utarlington.pigeon.thrift.RecursiveService;
@@ -31,9 +30,7 @@ import org.apache.log4j.Logger;
 import org.apache.thrift.async.AsyncMethodCallback;
 
 import java.net.InetSocketAddress;
-import java.util.List;
-import java.util.Queue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.LinkedList;
 
 /**
  * This scheduler assumes that backends can execute a fixed number of tasks (equal to
@@ -51,8 +48,12 @@ public class FifoTaskScheduler extends TaskScheduler {
                     new ThriftClientPool.RecursiveServiceMakerFactory());
 
     /** Available workers passed from master, should be invoked only at startup of master and this scheduler */
-    public FifoTaskScheduler() {
+    public FifoTaskScheduler(int wokersPerMaster) {
         maxActiveTasks = -1;
+
+        for (int i = 0; i < wokersPerMaster; i++) {
+            workerTaskQueue.add(new LinkedList<TLaunchTasksRequest>());
+        }
     }
 
     @Override
@@ -61,26 +62,30 @@ public class FifoTaskScheduler extends TaskScheduler {
     }
 
     @Override
-    protected boolean handleTaskFinished(String appId, String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress, PriorityType workerType) {
+    protected boolean handleTaskFinished(String appId, String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress, Integer workerId) {
         LOG.debug("Worker: " + backendAddress + " now have an idle spot open, attempting to fetch a new task from master node: " + this.ipAddress);
         TaskSpec reservation = new TaskSpec(appId, requestId, taskId, schedulerAddress, backendAddress);
 
         TLaunchTasksRequest request = null;
-        switch (workerType) {
-            case HIGH:
-                if(!HTQ.isEmpty())
-                    request = HTQ.poll();
-                break;
-            case LOW:
-                if (!HTQ.isEmpty()) {
-                    request = HTQ.poll();
-                } else if(!LTQ.isEmpty()) {
-                    request = LTQ.poll();
-                }
-                break;
-                default:
-                    LOG.error("Unexpected idle worker is received!");
+
+        if(!workerTaskQueue.isEmpty() && !workerTaskQueue.get(workerId).isEmpty())  {
+            request = workerTaskQueue.get(workerId).poll();
         }
+//        switch (workerType) {
+//            case HIGH:
+//                if(!HTQ.isEmpty())
+//                    request = HTQ.poll();
+//                break;
+//            case LOW:
+//                if (!HTQ.isEmpty()) {
+//                    request = HTQ.poll();
+//                } else if(!LTQ.isEmpty()) {
+//                    request = LTQ.poll();
+//                }
+//                break;
+//                default:
+//                    LOG.error("Unexpected idle addr is received!");
+//        }
 
         return attemptTaskLaunch(request, reservation);
     }
@@ -139,10 +144,10 @@ public class FifoTaskScheduler extends TaskScheduler {
 
         //If no more tasks need to be send, return a dummy feedback to nm to inform it no more tasks for it
         if (request == null) {
-            LOG.debug("No more tasks need to be assigned to this worker: " + reservation.appBackendAddress + ", prepare putting it to idle worker list.");
+            LOG.debug("No more tasks need to be assigned to this addr: " + reservation.appBackendAddress + ", prepare putting it to idle addr list.");
             isIdle = true;
         } else {
-            //Launch the proper task on the worker
+            //Launch the proper task on the addr
             reservation.requestId = request.requestID;
             reservation.taskSpec = request.tasksToBeLaunched.get(0);
             makeTaskRunnable(reservation);
@@ -159,10 +164,8 @@ public class FifoTaskScheduler extends TaskScheduler {
     @Override
     protected synchronized void enqueue(TLaunchTasksRequest task) {
         TTaskLaunchSpec taskSpec = task.tasksToBeLaunched.get(0);
-        LOG.debug("Enqueue task_" + taskSpec.taskId + " of priority: " + taskSpec.isHT + " for request: " + task.requestID);
-        if(taskSpec.isHT)
-            HTQ.add(task);
-        else
-            LTQ.add(task);
+        LOG.debug("Enqueue task_" + taskSpec.taskId + " for request: " + task.requestID);
+
+        workerTaskQueue.get(Integer.valueOf(taskSpec.taskId)).add(task);
     }
 }

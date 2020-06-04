@@ -103,4 +103,7 @@ public class PigeonConf {
 
     public static final String TR_CUTOFF = "tr_cutoff";
     public static final double TR_CUTOFF_DEFAULT = 13581.11;
+
+    public final static String WOKER_PER_MASTER = "wokers.per.master";
+    public static final int DEFAULT_WOKER_PER_MASTER = 4;
 }

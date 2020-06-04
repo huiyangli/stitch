@@ -22,10 +22,7 @@ package edu.utarlington.pigeon.daemon.scheduler;
 import com.google.common.base.Optional;
 import com.google.common.collect.Maps;
 import edu.utarlington.pigeon.daemon.PigeonConf;
-import edu.utarlington.pigeon.daemon.util.ListUtils;
-import edu.utarlington.pigeon.daemon.util.Network;
-import edu.utarlington.pigeon.daemon.util.Serialization;
-import edu.utarlington.pigeon.daemon.util.ThriftClientPool;
+import edu.utarlington.pigeon.daemon.util.*;
 import edu.utarlington.pigeon.thrift.*;
 import edu.utarlington.pigeon.thrift.FrontendService.AsyncClient.frontendMessage_call;
 import org.apache.commons.configuration.Configuration;
@@ -201,27 +198,13 @@ public class Scheduler {
                     LOG.debug("All tasks for request:" + requestId + " has been completed!");
                     //TODO: merging with logging support: write-out the request execution time for requestId
                     long latency = taskPlacer.getExecDurationMillis(System.currentTimeMillis());
-                    LOG.debug("Request: " + requestId + " Request Type: " + taskPlacer.getPriority() + " exec latency: " + latency);
-                    String requestInfo = "Request: " + requestId + " Request Type: " + taskPlacer.getPriority() + " exec latency: " + latency;
-                    CreateNewTxt(requestInfo);
+                    String requestInfo = "Request: " + requestId + " Request Type: " + taskPlacer.getPriority() + " exec latency: " + latency + "ms";
+                    LOG.debug(requestInfo);
+                    Utils.writeToLocalFile("requestInfoScheduler.txt", requestInfo);
                     requestTaskPlacers.remove(requestId);
                 }
             }
 
-        }
-    }
-
-    /*Output txt file*/
-    public void CreateNewTxt(String requestInfo){
-        BufferedWriter output = null;
-        try {
-            File file = new File("requestInfo.txt");
-            output = new BufferedWriter(new OutputStreamWriter(
-                    new FileOutputStream(file, true), "utf-8"));
-            output.write(requestInfo+"\r\n");
-            output.close();
-        } catch ( IOException e ) {
-            e.printStackTrace();
         }
     }
 

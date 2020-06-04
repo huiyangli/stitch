@@ -27,6 +27,7 @@ import org.apache.commons.configuration.Configuration;
 import org.apache.log4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -43,7 +44,6 @@ import java.util.concurrent.LinkedBlockingQueue;
  * Schedulers are required to be thread safe, as they will be accessed concurrently from
  * multiple threads.
  */
-//TODO: Logging
 public abstract class TaskScheduler {
 
     protected class TaskSpec {
@@ -111,8 +111,10 @@ public abstract class TaskScheduler {
     /**
      * High/low priority task list
      */
-    protected Queue<TLaunchTasksRequest> HTQ = new LinkedList<TLaunchTasksRequest>();
-    protected Queue<TLaunchTasksRequest> LTQ = new LinkedList<TLaunchTasksRequest>();
+//    protected Queue<TLaunchTasksRequest> HTQ = new LinkedList<TLaunchTasksRequest>();
+//    protected Queue<TLaunchTasksRequest> LTQ = new LinkedList<TLaunchTasksRequest>();
+
+    protected ArrayList<Queue<TLaunchTasksRequest>> workerTaskQueue = new ArrayList<Queue<TLaunchTasksRequest>>();
 
     /** Initialize the task scheduler, passing it the current available resources
      *  on the machine. */
@@ -141,11 +143,11 @@ public abstract class TaskScheduler {
         return runnableTaskQueue.size();
     }
 
-    boolean tasksFinished(List<TFullTaskId> finishedTasks, InetSocketAddress backendAddress, PriorityType workerType) {
+    boolean tasksFinished(List<TFullTaskId> finishedTasks, InetSocketAddress backendAddress, Integer workerId) {
         boolean isIdle = false;
         for (TFullTaskId t : finishedTasks) {
 //            AUDIT_LOG.info(Logging.auditEventString("task_completed", t.getRequestId(), t.getTaskId()));
-             isIdle = handleTaskFinished(t.getAppId(), t.getRequestId(), t.getTaskId(), t.getSchedulerAddress(), backendAddress, workerType);
+             isIdle = handleTaskFinished(t.getAppId(), t.getRequestId(), t.getTaskId(), t.getSchedulerAddress(), backendAddress, workerId);
         }
         return isIdle;
     }
@@ -201,7 +203,7 @@ public abstract class TaskScheduler {
      * Handles the completion of a task that has finished executing.
      */
 //    protected abstract boolean handleTaskFinished(String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress);
-    protected abstract boolean handleTaskFinished(String appId, String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress, PriorityType workerType);
+    protected abstract boolean handleTaskFinished(String appId, String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress, Integer workerId);
 
     /**
      * Handles the case when the node monitor tried to launch a task for a reservation, but
