@@ -28,7 +28,7 @@ fi
 
 # Wait for daemon ready
 sleep 10
-nohup java -cp pigeon-1.0-SNAPSHOT.jar edu.utarlington.pigeon.examples.SimpleBackend -c backend.conf  > $LOG 2>&1 &
+nohup java -cp stitch-1.0-SNAPSHOT.jar edu.utarlington.pigeon.examples.SimpleBackend -c backend.conf  > $LOG 2>&1 &
 
 PID=$!
 echo "Logging to $LOG"

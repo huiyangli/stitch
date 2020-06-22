@@ -70,6 +70,8 @@ def parse_args(force_action=True):
                     help="The number of pigeon masters")
   parser.add_option("-p","--percentage-of-hw", type="float", default=0.1,
                     help="The percentage of high workers (reserved for short job) in all backends")
+  parser.add_option("--workers-per-master", type="int", default=2,
+                    help="The number of workers per master")
 
   (opts, args) = parser.parse_args()
   if len(args) < 2 and force_action:
@@ -342,7 +344,7 @@ def generate_deploy_files(frontends, backends, opts,
 
   # Copy pigeon binaries to the tmp folder
   from shutil import copy
-  copy('../../target/pigeon-1.0-SNAPSHOT.jar',tmp_dir)
+  copy('/Users/mac/Code/stitch/target/stitch-1.0-SNAPSHOT.jar',tmp_dir)
 
   m = opts.num_of_masters
   master_list =  backends[0:m]
@@ -363,7 +365,8 @@ def generate_deploy_files(frontends, backends, opts,
       "frontend_type": opts.frontend_type,
       "cpus": "%s" % opts.cpus,
       "trace_file_path": "%s" % opts.trace_file_path,
-      "trace_cut_off": "%s" % opts.trace_cut_off
+      "trace_cut_off": "%s" % opts.trace_cut_off,
+      "workers_per_master": "%s" % opts.workers_per_master
   }
 
   for dirpath, dirnames, filenames in os.walk("template"):
@@ -450,7 +453,7 @@ def stop_proto(frontends, backends, opts):
   time.sleep(opts.kill_delay)
   print "Stopping Proto backends..."
   ssh_all([be.public_dns_name for be in backends], opts,
-         "/root/stop_proto_backend.sh")
+         "/root/stop_proto_backend.sh; /root/clean_logs.sh")
 
 def collect_logs(frontends, backends, opts):
   print "Zipping logs..."

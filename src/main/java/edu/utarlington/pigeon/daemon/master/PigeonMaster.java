@@ -37,6 +37,7 @@ import org.apache.thrift.async.AsyncMethodCallback;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
@@ -93,7 +94,7 @@ public class PigeonMaster {
 
     public void initialize(Configuration conf, int masterInternalPort) {
         String mode = conf.getString(PigeonConf.DEPLYOMENT_MODE, "unspecified");
-        int wokersPerMaster = conf.getInt(PigeonConf.WOKER_PER_MASTER, 4);
+        int wokersPerMaster = conf.getInt(PigeonConf.WORKERS_PER_MASTER, 4);
         if (mode.equals("standalone")) {
             //TODO: Other mode
         } else if (mode.equals("configbased")) {
@@ -176,17 +177,24 @@ public class PigeonMaster {
 
             requestNumberOfTasks.put(request.requestID, request.tasksToBeLaunched.size());
 
-            for (TTaskLaunchSpec task : request.tasksToBeLaunched) {
-                int i = Integer.valueOf(task.taskId);
+            LaunchTask[] tasks = new LaunchTask[request.tasksToBeLaunched.size()];
+            for (int i = 0; i < tasks.length; i++) {
+                LaunchTask task = new LaunchTask(request.tasksToBeLaunched.get(i));
+                tasks[i] = task;
+            }
+            Arrays.sort(tasks); //For use of dispatching task based on the ascending order of the task id
+
+            for (int i = 0; i < tasks.length; i++) {
+                TTaskLaunchSpec t = tasks[i].taskSpec;
                 InetSocketAddress workerAddr = reverseWorkerDictionary.get(i);
 
                 if(!occupiedWorkers.isEmpty() && occupiedWorkers.containsValue(i)) {
                     //enqueue
                     scheduler.enqueue(
-                            new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task)));
+                            new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(t)), i);
                 } else {
                     //launch & occupied
-                    TLaunchTasksRequest launchTasksRequest = new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task));
+                    TLaunchTasksRequest launchTasksRequest = new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(t));
                     scheduler.submitLaunchTaskRequest(launchTasksRequest, workerAddr);
                     occupiedWorkers.put(workerAddr, i);
 
@@ -269,6 +277,23 @@ public class PigeonMaster {
         appSockets.get(app).add(new WorkerWithId(workerDictionary.get(worker), worker));
 
         occupiedWorkers.remove(worker);
+    }
+
+    private class LaunchTask implements Comparable<LaunchTask> {
+        TTaskLaunchSpec taskSpec;
+
+        public LaunchTask(TTaskLaunchSpec pTaskSpec) {
+            taskSpec = pTaskSpec;
+        }
+
+        @Override
+        public int compareTo(LaunchTask o) {
+            return this.getId() - o.getId();
+        }
+
+        public int getId() {
+            return Integer.valueOf(taskSpec.taskId);
+        }
     }
 
     //Count the number of tasks finished for particular request; if so, handle the situation

@@ -162,10 +162,10 @@ public class FifoTaskScheduler extends TaskScheduler {
     }
 
     @Override
-    protected synchronized void enqueue(TLaunchTasksRequest task) {
+    protected synchronized void enqueue(TLaunchTasksRequest task, int workerID) {
         TTaskLaunchSpec taskSpec = task.tasksToBeLaunched.get(0);
         LOG.debug("Enqueue task_" + taskSpec.taskId + " for request: " + task.requestID);
 
-        workerTaskQueue.get(Integer.valueOf(taskSpec.taskId)).add(task);
+        workerTaskQueue.get(workerID).add(task);
     }
 }

@@ -4,4 +4,6 @@ rm -f /tmp/*.log
 rm -f /tmp/*.log.gz
 rm -f ~/*.log
 rm -f ~/*.log.gz
-rm -f /root/requestInfo*.txt
+rm -rf /root/requestInfoScheduler.txt
+rm -rf /root/RequestInfoMaster.txt
+rm -rf /root/tasksInfoWorker.txt

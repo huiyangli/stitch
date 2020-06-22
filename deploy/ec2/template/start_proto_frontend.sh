@@ -22,7 +22,7 @@ fi
 
 # Wait for daemon ready
 sleep 5
-nohup java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 -XX:+UseConcMarkSweepGC -verbose:gc -XX:+PrintGCTimeStamps -Xmx2046m -XX:+PrintGCDetails  -cp pigeon-1.0-SNAPSHOT.jar edu.utarlington.pigeon.examples.{{frontend_type}} -c frontend.conf > $LOG 2>&1 &
+nohup java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 -XX:+UseConcMarkSweepGC -verbose:gc -XX:+PrintGCTimeStamps -Xmx2046m -XX:+PrintGCDetails  -cp stitch-1.0-SNAPSHOT.jar edu.utarlington.pigeon.examples.{{frontend_type}} -c frontend.conf > $LOG 2>&1 &
 
 PID=$!
 echo "Logging to $LOG"

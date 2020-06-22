@@ -222,5 +222,5 @@ public abstract class TaskScheduler {
     /**
      * Enqueue the task at either HTQ or LTQ based on the scheduler's policy
      */
-    protected abstract void enqueue(TLaunchTasksRequest launchTasksRequest);
+    protected abstract void enqueue(TLaunchTasksRequest launchTasksRequest, int workerID);
 }
