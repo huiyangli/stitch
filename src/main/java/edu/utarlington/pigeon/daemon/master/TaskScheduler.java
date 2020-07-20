@@ -21,16 +21,13 @@ package edu.utarlington.pigeon.daemon.master;
 
 import edu.utarlington.pigeon.daemon.scheduler.Scheduler;
 import edu.utarlington.pigeon.daemon.util.Network;
-import edu.utarlington.pigeon.daemon.util.Serialization;
+import edu.utarlington.pigeon.daemon.util.Utils;
 import edu.utarlington.pigeon.thrift.*;
 import org.apache.commons.configuration.Configuration;
 import org.apache.log4j.Logger;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -38,9 +35,9 @@ import java.util.concurrent.LinkedBlockingQueue;
  * A TaskScheduler is a buffer that holds task reservations until an application backend is
  * available to run the task. When a backend is ready, the TaskScheduler requests the task
  * from the {@link Scheduler} that submitted the reservation.
- *
+ * <p>
  * Each scheduler will implement a different policy determining when to launch tasks.
- *
+ * <p>
  * Schedulers are required to be thread safe, as they will be accessed concurrently from
  * multiple threads.
  */
@@ -67,7 +64,9 @@ public abstract class TaskScheduler {
         public String previousTaskId;
 
         /** Filled in after the getTask() RPC completes. */
-        /** For pigeon, taskSpec is filled in when nm get the launch task request*/
+        /**
+         * For pigeon, taskSpec is filled in when nm get the launch task request
+         */
         public TTaskLaunchSpec taskSpec;
 
         /**
@@ -105,52 +104,62 @@ public abstract class TaskScheduler {
 
     protected Configuration conf;
 
+    /**
+     * High/low priority task list
+     */
+
+//    protected ArrayList<BlockingQueue<TaskSpec>> workerTaskQueue = new ArrayList<BlockingQueue<TaskSpec>>();
+    protected HashMap<Double, Long> key2LaunchedTimeStamp;
+    protected HashMap<Double, Long> key2EnqueueTimeStamp;
     private final BlockingQueue<TaskSpec> runnableTaskQueue =
             new LinkedBlockingQueue<TaskSpec>();
 
     /**
-     * High/low priority task list
+     * Initialize the task scheduler, passing it the current available resources
+     * on the machine.
      */
-//    protected Queue<TLaunchTasksRequest> HTQ = new LinkedList<TLaunchTasksRequest>();
-//    protected Queue<TLaunchTasksRequest> LTQ = new LinkedList<TLaunchTasksRequest>();
-
-    protected ArrayList<Queue<TLaunchTasksRequest>> workerTaskQueue = new ArrayList<Queue<TLaunchTasksRequest>>();
-
-    /** Initialize the task scheduler, passing it the current available resources
-     *  on the machine. */
     void initialize(Configuration conf) {
         this.conf = conf;
         this.ipAddress = Network.getIPAddress(conf);
+        key2LaunchedTimeStamp = new HashMap<Double, Long>();
+        key2EnqueueTimeStamp = new HashMap<Double, Long>();
     }
 
     /**
      * Get the next task available for launching. This will block until a task is available.
      */
-    TaskSpec getNextTask() {
+    TaskSpec getNextTask(boolean collectPerfMetrix) {
         TaskSpec task = null;
         try {
             task = runnableTaskQueue.take();
         } catch (InterruptedException e) {
             LOG.fatal(e);
         }
+
+        if (collectPerfMetrix) {
+            double key = Utils.hashCode(task.requestId, task.taskSpec.taskId);
+            key2LaunchedTimeStamp.put(key, System.currentTimeMillis());
+            LOG.debug("Adding key: " + key + " for request_" + task.requestId + " task_" + task.taskSpec.taskId);
+        }
+
         return task;
     }
 
     /**
      * Returns the current number of runnable tasks (for testing).
      */
-    int runnableTasks() {
-        return runnableTaskQueue.size();
-    }
+//    int runnableTasks() {
+//        return runnableTaskQueue.size();
+//    }
 
-    boolean tasksFinished(List<TFullTaskId> finishedTasks, InetSocketAddress backendAddress, Integer workerId) {
-        boolean isIdle = false;
-        for (TFullTaskId t : finishedTasks) {
-//            AUDIT_LOG.info(Logging.auditEventString("task_completed", t.getRequestId(), t.getTaskId()));
-             isIdle = handleTaskFinished(t.getAppId(), t.getRequestId(), t.getTaskId(), t.getSchedulerAddress(), backendAddress, workerId);
-        }
-        return isIdle;
-    }
+//    boolean tasksFinished(List<TFullTaskId> finishedTasks, InetSocketAddress backendAddress, Integer workerId) {
+//        boolean isIdle = false;
+//        for (TFullTaskId t : finishedTasks) {
+////            AUDIT_LOG.info(Logging.auditEventString("task_completed", t.getRequestId(), t.getTaskId()));
+//             isIdle = handleTaskFinished(t.getAppId(), t.getRequestId(), t.getTaskId(), t.getSchedulerAddress(), backendAddress, workerId);
+//        }
+//        return isIdle;
+//    }
 
     void noTaskForReservation(String appId, String requestId, InetSocketAddress schedulerAddr, THostPort master) {
         handleNoTasksReservations(appId, requestId, schedulerAddr, master);
@@ -158,21 +167,53 @@ public abstract class TaskScheduler {
 
     protected void makeTaskRunnable(TaskSpec task) {
         try {
+            LOG.debug("Make task_" + task.taskSpec.taskId + " for request_" + task.requestId + " runnable!");
             runnableTaskQueue.put(task);
         } catch (InterruptedException e) {
             LOG.fatal("Unable to add task to runnable queue: " + e.getMessage());
         }
     }
 
-    public synchronized void submitLaunchTaskRequest(TLaunchTasksRequest request,
-                                                    InetSocketAddress appBackendAddress) {
-        TaskSpec taskToBeLaunched = new TaskSpec(request, appBackendAddress);
-        LOG.debug("Launching task_" + taskToBeLaunched.taskSpec.taskId + " for request: " + request.requestID);
-        handleSubmitTaskLaunchRequest(taskToBeLaunched);
+    public long getTaskQueueingTimeMS(String requestId, String taskId) {
+        double key = Utils.hashCode(requestId, taskId);
+        if (!key2EnqueueTimeStamp.containsKey(key)) return -1;
+
+        long taskLaunchedTimeStamp = key2LaunchedTimeStamp.get(key);
+        long taskEnqueueTimeStamp = key2EnqueueTimeStamp.get(key);
+        LOG.debug("Get queueing time for task_" + taskId + "of request: " + requestId + " ,launchedTimeStamp: " + taskLaunchedTimeStamp + " , enqueuedTimeStamp: " + taskEnqueueTimeStamp);
+        return taskLaunchedTimeStamp - taskEnqueueTimeStamp;
     }
 
+    public long getTaskLaunchedTimeStamp(String requestId, String taskId) {
+        double key = Utils.hashCode(requestId, taskId);
+//        LOG.debug("Generate key value for request_" + requestId + " task_" + taskId + " key is: " + key);
+        if (key2LaunchedTimeStamp.isEmpty() || !key2LaunchedTimeStamp.containsKey(key))
+            throw new IllegalStateException("Something went wrong, key: " + key + " doesn't exist for  task_" + taskId + "for request_" + requestId + " doesn't exist in cache");
+
+        return key2LaunchedTimeStamp.get(key);
+    }
+
+
+    public void clear(String requestId, String taskId) {
+        double key = Utils.hashCode(requestId, taskId);
+
+        key2LaunchedTimeStamp.remove(key);
+        key2EnqueueTimeStamp.remove(key);
+    }
+
+
+//    public synchronized void submitLaunchTaskRequest(TLaunchTasksRequest request,
+//                                                    InetSocketAddress appBackendAddress) {
+//        TaskSpec taskToBeLaunched = new TaskSpec(request, appBackendAddress);
+//        LOG.debug("Launching task_" + taskToBeLaunched.taskSpec.taskId + " for request: " + request.requestID + " at time stamp " + System.currentTimeMillis());
+//
+//        double key = Utils.hashCode(request.requestID, request.tasksToBeLaunched.get(0).taskId);
+//        key2LaunchedTimeStamp.put(key, System.currentTimeMillis());
+//        handleSubmitTaskLaunchRequest(taskToBeLaunched);
+//    }
+
     private TTaskLaunchSpec unWrapLaunchTaskRequest(TLaunchTasksRequest request) {
-        if(request.tasksToBeLaunched != null && request.tasksToBeLaunched.size() == 1)
+        if (request.tasksToBeLaunched != null && request.tasksToBeLaunched.size() == 1)
             return request.tasksToBeLaunched.get(0);
         else {//TODO: Handling more than one tasks
             LOG.debug("Fetching more than one tasks for the request.");
@@ -192,7 +233,7 @@ public abstract class TaskScheduler {
      * @param taskToBeLaucnhed
      * @return
      */
-    abstract void handleSubmitTaskLaunchRequest(TaskSpec taskToBeLaucnhed);
+//    abstract void handleSubmitTaskLaunchRequest(TaskSpec taskToBeLaucnhed);
 
     /**
      * Cancels all task reservations with the given request id. Returns the number of task
@@ -214,13 +255,15 @@ public abstract class TaskScheduler {
 
     /**
      * Returns the maximum number of active tasks allowed (the number of workers).
-     *
+     * <p>
      * -1 signals that the scheduler does not enforce a maximum number of active tasks.
      */
-    protected abstract int getMaxActiveTasks();
+    protected abstract int getWorkersPerMaster();
 
     /**
-     * Enqueue the task at either HTQ or LTQ based on the scheduler's policy
+     * Enqueue the task to its corresponding worker queue
      */
-    protected abstract void enqueue(TLaunchTasksRequest launchTasksRequest, int workerID);
+    protected abstract void enqueue(TLaunchTasksRequest launchTasksRequest, int workerID, InetSocketAddress workerAddr, boolean collectPerfMetrics);
+
+//    public abstract void registerBackend(InetSocketAddress backendAddr);
 }

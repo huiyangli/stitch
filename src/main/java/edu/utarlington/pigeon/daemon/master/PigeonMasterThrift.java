@@ -94,7 +94,13 @@ public class PigeonMasterThrift implements MasterService.Iface, InternalService.
 
     @Override
     public void taskFinished(List<TFullTaskId> task, THostPort worker) throws TException {
-        pigeonMaster.taskFinished(task, worker);
+//        pigeonMaster.taskFinished(task, worker);
+        pigeonMaster.taskFinishedInMS(task, worker, 0);
+    }
+
+    @Override
+    public void taskFinishedInMS(List<TFullTaskId> task, THostPort worker, long elapsed) throws TException {
+        pigeonMaster.taskFinishedInMS(task, worker, elapsed);
     }
 
     @Override

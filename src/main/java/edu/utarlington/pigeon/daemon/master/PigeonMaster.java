@@ -37,7 +37,6 @@ import org.apache.thrift.async.AsyncMethodCallback;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
@@ -59,19 +58,20 @@ public class PigeonMaster {
      * Used to uniquely identify addr registered with this master.
      */
     private AtomicInteger workercnt = new AtomicInteger(0);
-
     private final static Logger LOG = Logger.getLogger(PigeonMaster.class);
 
     private static PigeonMasterState state;
+
+    private static final boolean COLLECT_PERFORMANCE_METRICS = false;
 
     //* --- Thread-Safe Fields --- *//
     // A map to workers, filled in when backends register themselfs with their master
     private HashMap<String, List<WorkerWithId>> appSockets;
     //dictionary keep record of worker addr ==> id
-    private HashMap<InetSocketAddress, Integer> workerDictionary;
-    private HashMap<Integer, InetSocketAddress> reverseWorkerDictionary;
+    private HashMap<InetSocketAddress, Integer> workerAddr2WorkerId;
+    InetSocketAddress[] workerId2WorkerAddr;
     //A map of occupied workers, keyed by the addr's ID, the value is the addr socket
-    private HashMap<InetSocketAddress, Integer> occupiedWorkers;
+//    private HashMap<InetSocketAddress, Integer> occupiedWorkers;
     //Record of number of tasks from the same requests
     private ConcurrentMap<String, Integer> requestNumberOfTasks =
             Maps.newConcurrentMap();
@@ -115,7 +115,7 @@ public class PigeonMaster {
         if (task_scheduler_type.equals("round_robin")) {
 //            scheduler = new RoundRobinTaskScheduler(cores);
         } else if (task_scheduler_type.equals("fifo")) {
-            scheduler = new FifoTaskScheduler(wokersPerMaster);
+            scheduler = new JADETaskScheduler(wokersPerMaster);
         } else if (task_scheduler_type.equals("priority")) {
 //            scheduler = new PriorityTaskScheduler(cores);
         } else {
@@ -124,25 +124,26 @@ public class PigeonMaster {
 
         /** Initialize addr list for Pigeon master */
         appSockets = new HashMap<String, List<WorkerWithId>>();
-        workerDictionary = new HashMap<InetSocketAddress, Integer>();
-        reverseWorkerDictionary = new HashMap<Integer, InetSocketAddress>();
-         requestElapsedTime = new HashMap<String, Long>();
+        workerAddr2WorkerId = new HashMap<InetSocketAddress, Integer>();
+        workerId2WorkerAddr = new InetSocketAddress[wokersPerMaster];
+        requestElapsedTime = new HashMap<String, Long>();
 
         /** Initialize of book-keeping of swapped workers */
-        occupiedWorkers = new HashMap<InetSocketAddress, Integer>();
+//        occupiedWorkers = new HashMap<InetSocketAddress, Integer>();
 
         /** Initialize task scheduler & task launcher service */
         scheduler.initialize(conf);
         taskLauncherService = new TaskLauncherService();
-        taskLauncherService.initialize(conf, scheduler);
+        taskLauncherService.initialize(conf, scheduler, COLLECT_PERFORMANCE_METRICS);
     }
 
     public boolean registerBackend(String app, InetSocketAddress internalAddr, InetSocketAddress backendAddr, int type) {
         LOG.debug("Attempt to register addr: " + backendAddr + " at master:" + internalAddr + " for App: " + app);
         //TODO: fix backend registration synchonization problem
         int id = workercnt.getAndIncrement();
-        workerDictionary.put(backendAddr, id);
-        reverseWorkerDictionary.put(id, backendAddr);
+        workerAddr2WorkerId.put(backendAddr, id);
+        workerId2WorkerAddr[id] = backendAddr;
+//        scheduler.registerBackend(backendAddr);
 
         WorkerWithId worker = new WorkerWithId(id, backendAddr);
         if (!appSockets.containsKey(app))
@@ -176,124 +177,48 @@ public class PigeonMaster {
             }
 
             requestNumberOfTasks.put(request.requestID, request.tasksToBeLaunched.size());
+        }
 
-            LaunchTask[] tasks = new LaunchTask[request.tasksToBeLaunched.size()];
-            for (int i = 0; i < tasks.length; i++) {
-                LaunchTask task = new LaunchTask(request.tasksToBeLaunched.get(i));
-                tasks[i] = task;
-            }
-            Arrays.sort(tasks); //For use of dispatching task based on the ascending order of the task id
+        for (int i = 0; i < request.tasksToBeLaunched.size(); i++) {
+            TTaskLaunchSpec task = request.tasksToBeLaunched.get(i);
+            InetSocketAddress workerAddr = workerId2WorkerAddr[i];
 
-            for (int i = 0; i < tasks.length; i++) {
-                TTaskLaunchSpec t = tasks[i].taskSpec;
-                InetSocketAddress workerAddr = reverseWorkerDictionary.get(i);
-
-                if(!occupiedWorkers.isEmpty() && occupiedWorkers.containsValue(i)) {
-                    //enqueue
-                    scheduler.enqueue(
-                            new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(t)), i);
-                } else {
-                    //launch & occupied
-                    TLaunchTasksRequest launchTasksRequest = new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(t));
-                    scheduler.submitLaunchTaskRequest(launchTasksRequest, workerAddr);
-                    occupiedWorkers.put(workerAddr, i);
-
-                    workers.remove(new WorkerWithId(i, workerAddr));
-                }
-            }
-
-//            for (TTaskLaunchSpec task : request.tasksToBeLaunched) {
-//                InetSocketAddress addr = null;
-//                if (task.isHT) {//For high priority tasks
-//                    if (!LIW.isEmpty()) {
-//                        //If low priority idle queue is not empty, pick up one and send the request to the nm
-//                        addr = LIW.remove(0);
-//                        occupiedWorkers.put(addr, PriorityType.LOW);
-//                    } else if (!HIW.isEmpty()) {
-//                        //O.w. if  high priority idle queue is not empty, pick up one and send the request to that nm
-//                        addr = HIW.remove(0);
-//                        occupiedWorkers.put(addr, PriorityType.HIGH);
-//                    } else {//else enqueue the task in HTQ
-//                        scheduler.enqueue(
-//                                new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task)));
-//                    }
-//                } else {//For low priority tasks
-//                    if (!LIW.isEmpty()) {
-//                        //If low priority idle queue is not empty, pick up one and send the request to the nm
-//                        addr = LIW.remove(0);
-//                        occupiedWorkers.put(addr, PriorityType.LOW);
-//                    } else {
-//                        scheduler.enqueue(
-//                                new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task)));
-//                    }
-//                }
-//
-//                //TODO: Assign more than 1 task to the addr based on its processing capability
-//                if (addr != null) {
-//                    TLaunchTasksRequest launchTasksRequest = new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task));
-//                    scheduler.submitLaunchTaskRequest(launchTasksRequest, addr);
-//                }
-//            }
+            //enqueue
+            scheduler.enqueue(new TLaunchTasksRequest(request.appID, request.user, request.requestID, request.schedulerAddress, Lists.newArrayList(task)), i, workerAddr, COLLECT_PERFORMANCE_METRICS);
         }
         return true;
     }
 
-    //todo
-    public void taskFinished(List<TFullTaskId> task, THostPort worker) {
+    public void taskFinishedInMS(List<TFullTaskId> task, THostPort worker, long elapsed) {
         InetSocketAddress idleWorker = Network.thriftToSocketAddress(worker);
+        int idleWorkerId = workerAddr2WorkerId.get(idleWorker);
 
         String app = task.get(0).appId;
         String requestId = task.get(0).requestId;
+        String taskId = task.get(0).taskId;
+        LOG.debug("Task_" + taskId + " for request_" + requestId + " has completed in " + elapsed + " ms");
+
+        //record metrics
+        if (COLLECT_PERFORMANCE_METRICS) {
+            long taskElapsedTimeTotal = System.currentTimeMillis() - scheduler.getTaskLaunchedTimeStamp(requestId, taskId);
+            long taskQueueingTimeMs = scheduler.getTaskQueueingTimeMS(requestId, taskId) == -1 ? 0 : scheduler.getTaskQueueingTimeMS(requestId, taskId);
+//            scheduler.clear(requestId, taskId);
+            LOG.debug("Request:" + requestId + "'s Task: " + task.get(0).taskId + " has completed in " + taskElapsedTimeTotal + " ms, in which queueing time is : " + taskQueueingTimeMs + " ms");
+            long taskNetworkingTimeEst = (taskElapsedTimeTotal - elapsed) / 2;
+            String metricInfo = "Request: " + requestId +
+                    " Task: " + task.get(0).taskId +
+                    " TotalTaskElapsedMS " + taskElapsedTimeTotal +
+                    " WorkerTaskElapsedMS " + elapsed +
+                    " QueueingTimeMs " + taskQueueingTimeMs +
+                    " networkingMS: " + taskNetworkingTimeEst;
+            Utils.writeToLocalFile("network-metrics.info", metricInfo);
+        }
 
         synchronized (state) {
-            if (!occupiedWorkers.containsKey(idleWorker))
-                throw new RuntimeException("Unknown addr address, please verify the cluster configurations");
-
-            //Handle the idle addr based on the task scheduler's logic
-            boolean isIdle = scheduler.tasksFinished(task, idleWorker,
-                    occupiedWorkers.get(idleWorker));
-
-            if (isIdle) {
-                LOG.debug("Worker: " + worker + " is now idle, putting it to the idle addr list");
-                restoreWorker(app, idleWorker);
-            } else
-                LOG.debug("New task has been assigned to addr: " + worker);
-
-            //Check if all tasks belong to the same request have been completed
             countTaskReservations(app, requestId);
         }
-    }
 
-    //restore the addr to idle addr list based on its {@Link PriorityType}
-    private void restoreWorker(String app, InetSocketAddress worker) {
-//        switch (occupiedWorkers.get(addr)) {
-//            case HIGH:
-//                appSocketsHIWs.get(app).add(addr);
-//                break;
-//            case LOW:
-//                appSocketsLIWs.get(app).add(addr);
-//                break;
-//        }
-        appSockets.get(app).add(new WorkerWithId(workerDictionary.get(worker), worker));
-
-        occupiedWorkers.remove(worker);
-    }
-
-    private class LaunchTask implements Comparable<LaunchTask> {
-        TTaskLaunchSpec taskSpec;
-
-        public LaunchTask(TTaskLaunchSpec pTaskSpec) {
-            taskSpec = pTaskSpec;
-        }
-
-        @Override
-        public int compareTo(LaunchTask o) {
-            return this.getId() - o.getId();
-        }
-
-        public int getId() {
-            return Integer.valueOf(taskSpec.taskId);
-        }
+        scheduler.handleTaskFinished(app, requestId, taskId, task.get(0).schedulerAddress, idleWorker, idleWorkerId);
     }
 
     //Count the number of tasks finished for particular request; if so, handle the situation
@@ -310,7 +235,7 @@ public class PigeonMaster {
             Long startTime = requestElapsedTime.get(requestId);
             Long endTime = System.currentTimeMillis();
             Long latency = endTime - startTime;
-            String requestInfo = "Request: " + requestId + " exec latency: " + latency + "ms";
+            String requestInfo = "Request: " + requestId + " exec latency: " + latency + " ms";
             LOG.debug(requestInfo);
             //save local
             Utils.writeToLocalFile("RequestInfoMaster.txt", requestInfo);
@@ -380,6 +305,7 @@ public class PigeonMaster {
             id = pid;
             addr = pAddr;
         }
+
         @Override
         public int hashCode() {
             final int prime = 31;
@@ -387,6 +313,7 @@ public class PigeonMaster {
             result = prime * result + ((addr == null) ? 0 : addr.hashCode());
             return result;
         }
+
         @Override
         public boolean equals(Object obj) {
             if (this == obj)

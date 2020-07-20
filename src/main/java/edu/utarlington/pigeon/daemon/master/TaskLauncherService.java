@@ -19,25 +19,18 @@
 
 package edu.utarlington.pigeon.daemon.master;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import edu.utarlington.pigeon.daemon.PigeonConf;
-import edu.utarlington.pigeon.daemon.scheduler.SchedulerThrift;
 import edu.utarlington.pigeon.daemon.master.TaskScheduler.TaskSpec;
 import edu.utarlington.pigeon.daemon.util.Network;
 import edu.utarlington.pigeon.daemon.util.Resources;
 import edu.utarlington.pigeon.daemon.util.TClients;
-import edu.utarlington.pigeon.daemon.util.ThriftClientPool;
 import edu.utarlington.pigeon.thrift.*;
 import org.apache.commons.configuration.Configuration;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TException;
-import org.apache.thrift.async.AsyncMethodCallback;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -47,7 +40,7 @@ import java.util.concurrent.Executors;
  * For each TaskReservation, the TaskLauncherService attempts to fetch the task specification from
  * the scheduler that sent the reservation using the {@code getTask} RPC; if it successfully
  * fetches a task, it launches the task on the appropriate backend.
- *
+ * <p>
  * TaskLauncherService uses multiple threads to launch tasks. Each thread keeps a client for
  * each scheduler, and a client for each application backend, and the TaskLauncherService uses
  * a number of threads equal to the number of slots available for running tasks on the machine.
@@ -59,24 +52,27 @@ public class TaskLauncherService {
     /* The number of threads used by the service. */
     private int numThreads;
 
-    /** The master node who's loading the task launcher service*/
-    private THostPort master;
-
+    /**
+     * The master node who's loading the task launcher service
+     */
     private TaskScheduler scheduler;
+    private boolean collectPerfMetrics;
 
-    /** A runnable that spins in a loop asking for tasks to launch and launching them. */
+    /**
+     * A runnable that spins in a loop asking for tasks to launch and launching them.
+     */
     private class TaskLaunchRunnable implements Runnable {
 
-        /** Client to use to communicate with each scheduler (indexed by scheduler hostname). */
-        private HashMap<String, RecursiveService.AsyncClient> schedulerClients = Maps.newHashMap();
-
-        /** Client to use to communicate with each application backend (indexed by backend address). */
-        private HashMap<InetSocketAddress, BackendService.Client> backendClients = Maps.newHashMap();
+        /**
+         * Client to use to communicate with each application backend (indexed by backend address).
+         */
+        private HashMap<InetSocketAddress, BackendService.Client> backendClients = new HashMap<InetSocketAddress, BackendService.Client>();
 
         @Override
         public void run() {
             while (true) {
-                TaskSpec task = scheduler.getNextTask(); // blocks until task is ready
+
+                TaskSpec task = scheduler.getNextTask(collectPerfMetrics); // blocks until task is ready
                 if (task.taskSpec == null) {
                     LOG.error("Unexpected empty task obtained!");
                 }
@@ -84,19 +80,11 @@ public class TaskLauncherService {
                 //Launch Task
                 executeLaunchTaskRpc(task);
             }
-
-        }
-
-        /** Uses a tasksFinished() RPC to inform the appropriate scheduler tasks finished, triggered by a dummy TaskSpec created by TaskScheduler
-         * upon receiving handleNoTasksReservations() request from master node */
-        private void executeRecursiveCall(TaskSpec task) {
         }
 
         /**
-         * Used for Pigeon task launch request wrapper
+         * Executes an RPC to launch a task on an application backend.
          */
-
-        /** Executes an RPC to launch a task on an application backend. */
         private void executeLaunchTaskRpc(TaskSpec task) {
             if (!backendClients.containsKey(task.appBackendAddress)) {
                 try {
@@ -113,25 +101,21 @@ public class TaskLauncherService {
             TFullTaskId taskId = new TFullTaskId(task.taskSpec.getTaskId(), task.requestId,
                     task.appId, schedulerHostPort, false);
             try {
+                LOG.debug("Launch task_" + taskId + " for request_" + task.requestId + " at worker: " + task.appBackendAddress);
                 backendClient.launchTask(task.taskSpec.bufferForMessage(), taskId, task.user);
             } catch (TException e) {
-                LOG.error("Unable to launch task on backend " + task.appBackendAddress + ":" + e);
+                e.printStackTrace();
             }
         }
     }
 
-    public void initialize(Configuration conf, TaskScheduler scheduler) {
+    public void initialize(Configuration conf, TaskScheduler scheduler, boolean collectPerfMetrics) {
         this.scheduler = scheduler;
-        numThreads = scheduler.getMaxActiveTasks();
-        if (numThreads <= 0) {
-            // If the scheduler does not enforce a maximum number of tasks, just use a number of
-            // threads equal to the number of cores.
-            numThreads = Resources.getSystemCPUCount(conf);
-        }
+        numThreads = Resources.getSystemCPUCount(conf);
+        this.collectPerfMetrics = collectPerfMetrics;
 
         ExecutorService service = Executors.newFixedThreadPool(numThreads);
-        for (int i = 0; i < numThreads; i++) {
-            service.submit(new TaskLaunchRunnable());
-        }
+        service.submit(new TaskLaunchRunnable());
     }
+
 }

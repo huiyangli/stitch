@@ -75,7 +75,7 @@ public class TraceParser {
                LOG.debug("read: " + line);
                String[] data = line.split(" ");
                String requestID = data[1];
-               String latencyMS = data[4].substring(0, data[4].length() - 2);
+               String latencyMS = data[4];
                LOG.debug("Parsed requestID: " + requestID + ", latency in milliseconds: " + latencyMS);
 
                 String updated = requestID2LatencyMS.get(requestID) == null

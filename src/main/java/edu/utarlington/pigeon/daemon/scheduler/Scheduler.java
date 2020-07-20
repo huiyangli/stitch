@@ -268,8 +268,8 @@ public class Scheduler {
     }
 
     public InetSocketAddress getMaster(int i) throws Exception {
-        if(i == 0)
-            Collections.shuffle(pigeonMasters);
+//        if(i == 0)
+//            Collections.shuffle(pigeonMasters);
 
         return pigeonMasters.get(i);
     }

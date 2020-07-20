@@ -20,28 +20,34 @@
 package edu.utarlington.pigeon.daemon.master;
 
 import edu.utarlington.pigeon.daemon.util.Network;
+import edu.utarlington.pigeon.daemon.util.TClients;
 import edu.utarlington.pigeon.daemon.util.ThriftClientPool;
 import edu.utarlington.pigeon.daemon.util.Utils;
-import edu.utarlington.pigeon.thrift.RecursiveService;
-import edu.utarlington.pigeon.thrift.THostPort;
-import edu.utarlington.pigeon.thrift.TLaunchTasksRequest;
-import edu.utarlington.pigeon.thrift.TTaskLaunchSpec;
+import edu.utarlington.pigeon.thrift.*;
 //import javafx.concurrent.Task;
+import org.apache.commons.configuration.Configuration;
 import org.apache.log4j.Logger;
+import org.apache.thrift.TException;
 import org.apache.thrift.async.AsyncMethodCallback;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedList;
 
 /**
  * This scheduler assumes that backends can execute a fixed number of tasks (equal to
  * the number of cores on the machine) and uses a FIFO queue to determine the order to launch
  * tasks whenever outstanding tasks exceed this amount.
  */
-public class FifoTaskScheduler extends TaskScheduler {
-    private final static Logger LOG = Logger.getLogger(FifoTaskScheduler.class);
+public class JADETaskScheduler extends TaskScheduler {
+    private final static Logger LOG = Logger.getLogger(JADETaskScheduler.class);
 
-    public int maxActiveTasks;
+    private int workersPerMaster;
+    LinkedList<TaskSpec>[] workerId2TaskSpecs;
+    private boolean[] isWorkerIdle;
+//    private HashMap<InetSocketAddress, BackendService.Client> workerAddr2BackendSvcClient;
 
     //    /** Thrift client pool for communicating with Pigeon scheduler */
     ThriftClientPool<RecursiveService.AsyncClient> recursiveClientPool =
@@ -49,8 +55,23 @@ public class FifoTaskScheduler extends TaskScheduler {
                     new ThriftClientPool.RecursiveServiceMakerFactory());
 
     /** Available workers passed from master, should be invoked only at startup of master and this scheduler */
-    public FifoTaskScheduler(int numOfvCPUs) {
-        maxActiveTasks = numOfvCPUs;
+    public JADETaskScheduler(int workersPerMaster) {
+        this.workersPerMaster = workersPerMaster;
+    }
+
+    @Override
+    void initialize(Configuration conf) {
+        super.initialize(conf);
+
+        workerId2TaskSpecs = new LinkedList[workersPerMaster];
+        for(int i = 0; i < workersPerMaster; i++) {
+            workerId2TaskSpecs[i] = new LinkedList<TaskSpec>();
+        }
+
+        isWorkerIdle = new boolean[workersPerMaster];
+        Arrays.fill(isWorkerIdle, true);
+
+//        workerAddr2BackendSvcClient = new HashMap<InetSocketAddress, BackendService.Client>();
     }
 
     @Override
@@ -95,8 +116,8 @@ public class FifoTaskScheduler extends TaskScheduler {
     }
 
     @Override
-    protected int getMaxActiveTasks() {
-        return maxActiveTasks;
+    protected int getWorkersPerMaster() {
+        return workersPerMaster;
     }
 
     @Override
@@ -104,12 +125,60 @@ public class FifoTaskScheduler extends TaskScheduler {
         TTaskLaunchSpec taskSpec = task.tasksToBeLaunched.get(0);
         LOG.debug("Enqueue task_" + taskSpec.taskId + " for request: " + task.requestID + " at time stamp: " + System.currentTimeMillis());
 
-        TaskSpec t = new TaskSpec(task, workerAddr);
-        workerTaskQueue.get(workerID).add(t); //enqueue
+        TaskSpec enqueuedTask = new TaskSpec(task, workerAddr);
+        workerId2TaskSpecs[workerID].offer(enqueuedTask); //enqueue
+
+        if(isWorkerIdle[workerID]) {
+            isWorkerIdle[workerID] = false;
+            makeTaskRunnable(workerId2TaskSpecs[workerID].poll());
+        }
 
         if (collectPerfMetrics) {
             double key = Utils.hashCode(task.requestID, taskSpec.taskId);
             key2EnqueueTimeStamp.put(key, System.currentTimeMillis());
         }
     }
+
+    @Override
+    protected synchronized boolean handleTaskFinished(String appId, String requestId, String taskId, THostPort schedulerAddress, InetSocketAddress backendAddress, Integer workerId) {
+        LOG.debug("Handle task complete for task_" + taskId + " of request_" + requestId + " , for the worker: " + workerId);
+        TaskSpec nextTask = workerId2TaskSpecs[workerId].poll();
+        if(nextTask == null) {
+            isWorkerIdle[workerId] = true;
+            return false;
+        }
+
+        isWorkerIdle[workerId] = false;
+        makeTaskRunnable(nextTask);
+        return true;
+    }
+
+//    @Override
+//    public void registerBackend(InetSocketAddress backendAddr) {
+//        try {
+//            workerAddr2BackendSvcClient.put(backendAddr, TClients.createBlockingBackendClient(backendAddr));
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//    }
+
+
+//    @Override
+//    protected void makeTaskRunnable(TaskSpec task) {
+//        executeLaunchTaskRpc(task);
+//    }
+
+//    private void executeLaunchTaskRpc(TaskSpec task) {
+//        BackendService.Client backendClient = workerAddr2BackendSvcClient.get(task.appBackendAddress);
+//        THostPort schedulerHostPort = Network.socketAddressToThrift(task.schedulerAddress);
+//        //The isH property is irrelevant at the backend(addr) for Pigeon, so simply pass the default value here.
+//        TFullTaskId taskId = new TFullTaskId(task.taskSpec.getTaskId(), task.requestId,
+//                task.appId, schedulerHostPort, false);
+//        try {
+//            LOG.debug("Launch task_" + taskId + " for request_" + task.requestId + " at worker: " + task.appBackendAddress);
+//            backendClient.launchTask(task.taskSpec.bufferForMessage(), taskId, task.user);
+//        } catch (TException e) {
+//            e.printStackTrace();
+//        }
+//    }
 }

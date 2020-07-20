@@ -44,7 +44,7 @@ public class TaskSchedulerTest {
 //     */
 //    @Test
 //    public void testFifo() {
-//        TaskScheduler scheduler = new FifoTaskScheduler(4);
+//        TaskScheduler scheduler = new JADETaskScheduler(4);
 //        scheduler.initialize(new PropertiesConfiguration(), 12345);
 //
 //        final String testApp = "test app";

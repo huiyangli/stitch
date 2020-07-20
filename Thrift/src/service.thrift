@@ -97,6 +97,9 @@ service MasterService {
   # Inform the Master node that a particular task has finished
   void taskFinished(1: list<types.TFullTaskId> tasks, 2:types.THostPort worker);
 
+  # Inform the Master node that a particular task has finished, and return the turn arround time in milliseconds
+  void taskFinishedInMS(1: list<types.TFullTaskId> tasks, 2:types.THostPort worker, 3: i64 elapsed);
+
   # See SchedulerService.sendFrontendMessage
   # todo: No use for now, maybe we should consider to remove this part for Pigeon?
   void sendFrontendMessage(1: string app, 2: types.TFullTaskId taskId,

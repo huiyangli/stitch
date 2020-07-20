@@ -56,6 +56,8 @@ public class SimpleBackend implements BackendService.Iface {
     /** Address of this worker its master node can reach */
     private InetSocketAddress address;
 
+    private long receivedTaskTime = 0;
+    private long taskFinishedTime = 0;
     private static final String LISTEN_PORT = "listen_port";
     private static final int DEFAULT_LISTEN_PORT = 20101;
 
@@ -106,8 +108,9 @@ public class SimpleBackend implements BackendService.Iface {
                     TFullTaskId task = finishedTasks.take();
                     LOG.debug("Worker: " + address + " has completed task_" + task.taskId + " for request:" + task.requestId);
 
-                    //todo
-                    client.taskFinished(Lists.newArrayList(task), Network.socketAddressToThrift(address));
+                    taskFinishedTime = System.currentTimeMillis();
+//                    client.taskFinished(Lists.newArrayList(task), Network.socketAddressToThrift(address));
+                    client.taskFinishedInMS(Lists.newArrayList(task), Network.socketAddressToThrift(address), taskFinishedTime - receivedTaskTime);
                 } catch (InterruptedException e) {
                     LOG.error("Error taking a task from the queue: " + e.getMessage());
                 } catch (TException e) {
@@ -188,7 +191,8 @@ public class SimpleBackend implements BackendService.Iface {
 
     @Override
     public void launchTask(ByteBuffer message, TFullTaskId taskId, TUserGroupInfo user) throws TException {
-        LOG.info("Launching task_" + taskId.getTaskId() + " for request: " +  taskId.requestId + " at worker: " + this.address +" , starting from system time:" + System.currentTimeMillis());
+        receivedTaskTime = System.currentTimeMillis();
+        LOG.info("Launching task_" + taskId.getTaskId() + " for request: " +  taskId.requestId + " at worker: " + this.address +" , starting from system time:" + receivedTaskTime);
 
         executor.submit(new TaskRunnable(
                 taskId.requestId, taskId, message));
